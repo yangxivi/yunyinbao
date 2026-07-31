@@ -82,7 +82,7 @@ class _HTTPClient:
 class _Response:
     def __init__(self, resp, is_error=False):
         self.status_code = resp.getcode() if hasattr(resp, 'getcode') else 200
-        self._body = resp.read() if hasattr(resp, 'read') else b'{}
+        self._body = resp.read() if hasattr(resp, 'read') else b'{}'
         self._is_error = is_error
     
     def json(self):
@@ -214,7 +214,6 @@ class PrintClient:
             fail_count = 0
             while True:
                 if not self.is_connected:
-                    # 已断开，如果有保存的配置，尝试自动重连
                     if self.server_url and self.access_code and fail_count < 10:
                         fail_count += 1
                         try:
@@ -430,7 +429,6 @@ class PrintClient:
         return []
 
     def clear_my_tasks(self, status=None):
-        """清空我的任务"""
         if not self.is_connected:
             return 0, "未连接服务端"
         
@@ -509,7 +507,6 @@ class PrintClient:
         self.is_connected = False
     
     def clear_saved_config(self):
-        """清除保存的连接配置（忘记连接）"""
         self.server_url = None
         self.access_code = None
         self.user_id = None
@@ -527,7 +524,6 @@ class PrintClient:
             return False
 
     def get_local_printers(self):
-        """获取本地系统打印机列表"""
         printers = []
         try:
             import win32print
