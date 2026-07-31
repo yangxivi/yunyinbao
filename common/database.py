@@ -107,6 +107,7 @@ def init_db():
         );
         ''')
 
+        # ===== 数据库迁移：补充缺失的列 =====
         try:
             cols = [row[1] for row in c.execute("PRAGMA table_info(print_tasks)").fetchall()]
             if 'device_id' not in cols:
@@ -130,7 +131,12 @@ def date_str(ts=None):
         ts = time.time()
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
 
+
 def clear_tasks(status_filter=None):
+    """清空打印任务
+    status_filter: None=清空可安全删除的任务, 或指定状态如 'completed', 'failed', 'cancelled', 'expired'
+    注意：不会删除 'pending'(等待中) 和 'printing'(打印中) 的任务
+    """
     _db_lock.acquire()
     try:
         conn = get_db()
@@ -153,6 +159,7 @@ def clear_tasks(status_filter=None):
         _db_lock.release()
 
 def get_task_count():
+    """获取任务总数"""
     try:
         conn = get_db()
         c = conn.cursor()
@@ -164,6 +171,7 @@ def get_task_count():
         return 0
 
 def get_printer_count():
+    """获取打印机数量"""
     try:
         conn = get_db()
         c = conn.cursor()
@@ -175,6 +183,7 @@ def get_printer_count():
         return 0
 
 def get_device_count():
+    """获取设备数量"""
     try:
         conn = get_db()
         c = conn.cursor()
