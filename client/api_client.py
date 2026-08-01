@@ -92,7 +92,6 @@ class _Response:
             return {}
 
 
-# 模拟 requests 异常类，保留兼容性
 class _RequestException(Exception):
     pass
 
@@ -103,7 +102,6 @@ class exceptions:
 
 
 class requests:
-    """requests 兼容接口，内部用 urllib 实现"""
     exceptions = exceptions
     post = staticmethod(lambda *a, **kw: _HTTPClient().post(*a, **kw))
     get = staticmethod(lambda *a, **kw: _HTTPClient().get(*a, **kw))
