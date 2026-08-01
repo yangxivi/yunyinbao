@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def _try_enum_printers_win32():
+    """用 pywin32 枚举打印机"""
     try:
         import win32print
         enum_flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
@@ -29,6 +30,7 @@ def _try_enum_printers_win32():
 
 
 def _detect_printer_color_mode(printer_name):
+    """检测打印机是否支持彩色，返回 'color' 或 'black'"""
     try:
         import win32print
         hPrinter = win32print.OpenPrinter(printer_name)
@@ -36,6 +38,7 @@ def _detect_printer_color_mode(printer_name):
             info = win32print.GetPrinter(hPrinter, 2)
             devmode = info.get('pDevMode')
             if devmode and hasattr(devmode, 'Color'):
+                # DMCOLOR_COLOR = 2, DMCOLOR_MONOCHROME = 1
                 return "color" if devmode.Color == 2 else "black"
         finally:
             win32print.ClosePrinter(hPrinter)
@@ -45,6 +48,7 @@ def _detect_printer_color_mode(printer_name):
 
 
 def _try_enum_printers_ctypes():
+    """用 ctypes 直接调用 EnumPrintersW，不依赖 pywin32"""
     try:
         PRINTER_ENUM_LOCAL = 0x00000002
         PRINTER_ENUM_CONNECTIONS = 0x00000004
@@ -81,6 +85,7 @@ def _try_enum_printers_ctypes():
 
 
 def _try_enum_printers_powershell():
+    """用 PowerShell Get-Printer 枚举打印机"""
     try:
         result = subprocess.run(
             ['powershell', '-NoProfile', '-Command',
@@ -110,6 +115,69 @@ def _try_enum_printers_powershell():
         return None
 
 
+def _check_printer_status_powershell(printer_name):
+    """用 PowerShell 检查打印机状态"""
+    try:
+        ps = (
+            f'$p = Get-Printer -Name "{printer_name}" -ErrorAction SilentlyContinue; '
+            f'if ($p) {{ $p.PrinterStatus }} else {{ "NotInstalled" }}'
+        )
+        result = subprocess.run(
+            ['powershell', '-NoProfile', '-Command', ps],
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+        )
+        status_text = result.stdout.strip()
+        if status_text == "NotInstalled" or not status_text:
+            return "error", f"打印机 {printer_name} 未找到"
+        if status_text in ("Normal", "正常", "Idle", "Printing"):
+            return "online", "正常"
+        if "Offline" in status_text or "离线" in status_text:
+            return "offline", "离线"
+        if "Error" in status_text or "错误" in status_text:
+            return "error", "打印机错误"
+        if "Paper" in status_text or "OutOfPaper" in status_text:
+            return "paper_out", "缺纸"
+        if "Toner" in status_text or "NoToner" in status_text:
+            return "toner_low", "墨粉不足"
+        if "Door" in status_text:
+            return "door_open", "门打开"
+        return "online", f"状态: {status_text}"
+    except Exception as e:
+        return "error", f"无法查询打印机状态: {e}"
+
+
+def _check_printer_status_win32(printer_name):
+    """用 win32print 检查打印机状态"""
+    try:
+        import win32print
+        hPrinter = win32print.OpenPrinter(printer_name)
+        try:
+            info = win32print.GetPrinter(hPrinter, 2)
+            status = info.get('Status', 0)
+        finally:
+            win32print.ClosePrinter(hPrinter)
+        if status == 0:
+            return "online", "正常"
+        status_map = {
+            0x00000008: ("paper_out", "缺纸"),
+            0x00000010: ("paper_jam", "卡纸"),
+            0x00000080: ("offline", "离线"),
+            0x00000100: ("busy", "忙"),
+            0x00000002: ("error", "打印机错误"),
+            0x00002000: ("toner_low", "墨粉不足"),
+            0x00004000: ("no_toner", "无墨粉"),
+            0x00200000: ("door_open", "门打开"),
+            0x00100000: ("error", "内存不足"),
+        }
+        for flag, desc in status_map.items():
+            if status & flag:
+                return desc
+        return "online", "正常"
+    except Exception as e:
+        return None, str(e)
+
+
 class PrinterManager:
     def __init__(self, db):
         self.db = db
@@ -128,12 +196,16 @@ class PrinterManager:
             logger.error(f"加载打印机失败: {e}")
 
     def get_local_printers(self):
+        """获取本地打印机列表（多方式兜底）"""
+        # 方式1: pywin32
         printers = _try_enum_printers_win32()
         if printers is not None:
             return printers
+        # 方式2: ctypes
         printers = _try_enum_printers_ctypes()
         if printers is not None:
             return printers
+        # 方式3: PowerShell
         printers = _try_enum_printers_powershell()
         if printers is not None:
             return printers
@@ -145,10 +217,14 @@ class PrinterManager:
         with self._lock:
             conn = self.db.get_db()
             now = self.db.now_ts()
+
+            # 如果未指定 color_mode，自动检测打印机是否支持彩色
             if not color_mode:
                 color_mode = _detect_printer_color_mode(name)
+            
             if is_default:
                 conn.execute("UPDATE printers SET is_default = 0 WHERE is_default = 1")
+            
             cursor = conn.execute(
                 """INSERT INTO printers 
                 (name, connection_type, is_shared, is_default, paper_size, color_mode, duplex, status, created_at, updated_at)
@@ -157,6 +233,7 @@ class PrinterManager:
             )
             pid = cursor.lastrowid
             conn.commit()
+            
             row = conn.execute("SELECT * FROM printers WHERE id = ?", (pid,)).fetchone()
             self.printers_cache[pid] = dict(row)
             conn.close()
@@ -166,8 +243,10 @@ class PrinterManager:
         with self._lock:
             conn = self.db.get_db()
             now = self.db.now_ts()
+            
             if kwargs.get('is_default'):
                 conn.execute("UPDATE printers SET is_default = 0 WHERE is_default = 1")
+            
             fields = []
             values = []
             for k, v in kwargs.items():
@@ -176,8 +255,10 @@ class PrinterManager:
             fields.append("updated_at = ?")
             values.append(now)
             values.append(printer_id)
+            
             conn.execute(f"UPDATE printers SET {', '.join(fields)} WHERE id = ?", values)
             conn.commit()
+            
             row = conn.execute("SELECT * FROM printers WHERE id = ?", (printer_id,)).fetchone()
             if row:
                 self.printers_cache[printer_id] = dict(row)
@@ -214,3 +295,13 @@ class PrinterManager:
         row = conn.execute("SELECT * FROM printers WHERE is_default = 1 LIMIT 1").fetchone()
         conn.close()
         return dict(row) if row else None
+
+    def check_printer_status(self, printer_name):
+        """检查打印机状态（多方式兜底）"""
+        # 方式1: win32print
+        status, msg = _check_printer_status_win32(printer_name)
+        if status is not None and status not in ("error",):
+            return status, msg
+        # 方式2: PowerShell
+        status, msg = _check_printer_status_powershell(printer_name)
+        return status, msg

@@ -38,8 +38,10 @@ class UserManager:
                 if existing:
                     conn.close()
                     return False, "用户名已存在"
+                
                 hashed = hash_password(password)
                 now = self.db.now_ts()
+                
                 conn.execute(
                     """INSERT INTO users 
                     (username, password, role, real_name, department, daily_limit, status, created_at, updated_at)
@@ -93,8 +95,10 @@ class UserManager:
             try:
                 conn = self.db.get_db()
                 now = self.db.now_ts()
+                
                 if 'password' in kwargs:
                     kwargs['password'] = hash_password(kwargs['password'])
+                
                 fields = []
                 values = []
                 for k, v in kwargs.items():
@@ -103,6 +107,7 @@ class UserManager:
                 fields.append("updated_at = ?")
                 values.append(now)
                 values.append(user_id)
+                
                 conn.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", values)
                 conn.commit()
                 conn.close()
@@ -136,3 +141,31 @@ class UserManager:
             return (row['today_pages'] + pages_needed) <= row['daily_limit']
         except:
             return True
+
+    def get_print_stats(self, user_id=None, start_date=None, end_date=None):
+        try:
+            conn = self.db.get_db()
+            conditions = []
+            params = []
+            
+            if user_id:
+                conditions.append("user_id = ?")
+                params.append(user_id)
+            if start_date:
+                conditions.append("created_at >= ?")
+                params.append(start_date)
+            if end_date:
+                conditions.append("created_at <= ?")
+                params.append(end_date)
+            
+            where = " AND ".join(conditions) if conditions else "1=1"
+            
+            total = conn.execute(
+                f"SELECT COUNT(*) as c, COALESCE(SUM(pages*copies),0) as pages FROM print_tasks WHERE {where} AND status = 'completed'",
+                params
+            ).fetchone()
+            
+            conn.close()
+            return {"count": total['c'], "pages": total['pages']}
+        except:
+            return {"count": 0, "pages": 0}
