@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}打印机管理 - {{ app_name }}{% endblock %}
+{% block page_title %}打印机管理{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <span>打印机列表</span>
+        <button class="btn btn-primary btn-sm" onclick="showAddDialog()">+ 添加打印机</button>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>打印机名称</th>
+                <th>连接类型</th>
+                <th>状态</th>
+                <th>默认</th>
+                <th>共享</th>
+                <th>纸张</th>
+                <th>色彩</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in printers %}
+            <tr>
+                <td>{{ p.id }}</td>
+                <td>{{ p.name }}</td>
+                <td>{{ p.connection_type }}</td>
+                <td>
+                    {% if p.status == 'online' %}
+                    <span class="tag tag-green">在线</span>
+                    {% elif p.status == 'offline' %}
+                    <span class="tag tag-red">离线</span>
+                    {% else %}
+                    <span class="tag tag-orange">{{ p.status }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if p.is_default %}
+                    <span class="tag tag-blue">是</span>
+                    {% else %}
+                    <span class="tag tag-gray">否</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if p.is_shared %}
+                    <span class="tag tag-green">已共享</span>
+                    {% else %}
+                    <span class="tag tag-gray">未共享</span>
+                    {% endif %}
+                </td>
+                <td>{{ p.paper_size }}</td>
+                <td>{{ '彩色' if p.color_mode == 'color' else '黑白' }}</td>
+                <td>
+                    {% if not p.is_default %}
+                    <a href="/printers/{{ p.id }}/set_default" class="btn btn-default btn-sm">设为默认</a>
+                    {% endif %}
+                    <a href="/printers/{{ p.id }}/toggle_share" class="btn btn-default btn-sm">
+                        {{ '取消共享' if p.is_shared else '共享' }}
+                    </a>
+                    <a href="/printers/{{ p.id }}/delete" class="btn btn-danger btn-sm" onclick="return confirm('确定删除？')">删除</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" style="text-align:center;color:#999;padding:30px">暂无打印机，请先添加</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="addDialog" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:white;border-radius:8px;padding:30px;width:450px;">
+        <h3 style="margin-bottom:20px;">添加打印机</h3>
+        <form method="post" action="/printers/add">
+            <div class="form-row">
+                <label>打印机名称:</label>
+                <input type="text" name="name" required placeholder="请输入打印机名称">
+            </div>
+            <div class="form-row">
+                <label>连接类型:</label>
+                <select name="connection_type">
+                    <option value="USB">USB</option>
+                    <option value="网络">网络</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>纸张规格:</label>
+                <select name="paper_size">
+                    <option value="A4">A4</option>
+                    <option value="A3">A3</option>
+                    <option value="A5">A5</option>
+                    <option value="Letter">Letter</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>色彩模式:</label>
+                <select name="color_mode">
+                    <option value="black">黑白</option>
+                    <option value="color">彩色</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>设为默认:</label>
+                <input type="checkbox" name="is_default" style="flex:none;width:auto">
+            </div>
+            <div class="form-row">
+                <label>共享给客户端:</label>
+                <input type="checkbox" name="is_shared" checked style="flex:none;width:auto">
+            </div>
+            <div style="text-align:center;margin-top:20px;">
+                <button type="button" class="btn btn-default" onclick="hideAddDialog()">取消</button>
+                <button type="submit" class="btn btn-primary">添加</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showAddDialog() { document.getElementById('addDialog').style.display = 'flex'; }
+function hideAddDialog() { document.getElementById('addDialog').style.display = 'none'; }
+</script>
+{% endblock %}

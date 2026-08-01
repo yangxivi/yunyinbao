@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}数据概览 - {{ app_name }}{% endblock %}
+{% block page_title %}数据概览{% endblock %}
+{% block content %}
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">今日打印任务</div>
+        <div class="value">{{ today_count }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">今日打印页数</div>
+        <div class="value">{{ today_pages }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">累计打印任务</div>
+        <div class="value">{{ total_count }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">累计打印页数</div>
+        <div class="value">{{ total_pages }}</div>
+    </div>
+</div>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">共享打印机</div>
+        <div class="value" style="color:#52c41a">{{ printer_count }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">注册用户</div>
+        <div class="value" style="color:#722ed1">{{ user_count }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">在线设备</div>
+        <div class="value" style="color:#fa8c16">{{ device_count }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">等待打印</div>
+        <div class="value" style="color:#eb2f96">{{ queue_info.pending }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <span>最近打印任务</span>
+        <a href="/tasks" class="btn btn-primary btn-sm">查看全部</a>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>任务ID</th>
+                <th>用户</th>
+                <th>打印机</th>
+                <th>文件名</th>
+                <th>页数</th>
+                <th>状态</th>
+                <th>时间</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in recent_tasks %}
+            <tr>
+                <td>{{ t.task_id }}</td>
+                <td>{{ t.username or t.device_name }}</td>
+                <td>{{ t.printer_name }}</td>
+                <td>{{ t.file_name }}</td>
+                <td>{{ t.pages }}x{{ t.copies }}</td>
+                <td>
+                    {% if t.status == 'completed' %}
+                    <span class="tag tag-green">已完成</span>
+                    {% elif t.status == 'printing' %}
+                    <span class="tag tag-blue">打印中</span>
+                    {% elif t.status == 'pending' %}
+                    <span class="tag tag-orange">等待中</span>
+                    {% elif t.status == 'failed' %}
+                    <span class="tag tag-red">失败</span>
+                    {% elif t.status == 'cancelled' %}
+                    <span class="tag tag-gray">已取消</span>
+                    {% else %}
+                    <span class="tag tag-gray">{{ t.status }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ t.created_at|datetime_format }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" style="text-align:center;color:#999;padding:30px">暂无数据</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

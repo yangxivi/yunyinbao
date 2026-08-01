@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}设备管理 - {{ app_name }}{% endblock %}
+{% block page_title %}设备管理{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <span>设备列表</span>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>设备ID</th>
+                <th>设备名称</th>
+                <th>IP地址</th>
+                <th>MAC地址</th>
+                <th>系统</th>
+                <th>在线状态</th>
+                <th>拉黑</th>
+                <th>最后在线</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for d in devices %}
+            <tr>
+                <td>{{ d.device_id }}</td>
+                <td>{{ d.device_name or '-' }}</td>
+                <td>{{ d.ip_address or '-' }}</td>
+                <td>{{ d.mac_address or '-' }}</td>
+                <td>{{ d.os_info or '-' }}</td>
+                <td>
+                    {% if d.is_online %}
+                    <span class="tag tag-green">在线</span>
+                    {% else %}
+                    <span class="tag tag-gray">离线</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if d.blocked %}
+                    <span class="tag tag-red">已拉黑</span>
+                    {% else %}
+                    <span class="tag tag-green">正常</span>
+                    {% endif %}
+                </td>
+                <td>{{ d.last_online|datetime_format }}</td>
+                <td>
+                    {% if d.blocked %}
+                    <a href="/devices/{{ d.device_id }}/unblock" class="btn btn-success btn-sm">解除拉黑</a>
+                    {% else %}
+                    <a href="/devices/{{ d.device_id }}/block" class="btn btn-danger btn-sm" onclick="return confirm('确定拉黑？')">拉黑</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" style="text-align:center;color:#999;padding:30px">暂无设备</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
