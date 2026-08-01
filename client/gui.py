@@ -204,7 +204,7 @@ class ClientGUI:
                        borderwidth=1,
                        relief="solid")
         style.map("Danger.TButton",
-                 bordercolor=[("!active", theme["danger_button_border")])
+                 bordercolor=[("!active", theme["danger_button_border"])])
 
         style.configure("Treeview",
                        font=FONT_TABLE,
