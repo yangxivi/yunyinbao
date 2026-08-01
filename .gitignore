@@ -1,50 +1,24 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-.eggs/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# 虚拟环境
 venv/
 .venv/
 env/
-ENV/
-.python-version
-
-# PyInstaller 构建产物
 build/
 dist/
 *.spec.bak
 warn-*.txt
 xref-*.html
-
-# 日志与运行时数据
 logs/
 *.log
-
-# 数据库与上传文件（含敏感/用户数据）
 data/yunyinbao.db
 data/*.db-journal
 uploads/
-
-# 本地配置（如包含密码/密钥请保留忽略；如需共享配置可取消下一行注释）
-# data/config.json
-
-# IDE / 编辑器
 .idea/
 .vscode/
 *.swp
 *.swo
-*~
 .DS_Store
 Thumbs.db
-
-# 打包临时文件
 *.tmp
 *.bak
