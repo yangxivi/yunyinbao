@@ -65,14 +65,12 @@ class ClientGUI:
         self.root.after(3000, self._schedule_refresh)
 
     def _start_heartbeat(self):
-        """延迟启动心跳，不阻塞UI显示"""
         try:
             self.client._start_heartbeat()
         except Exception as e:
             logger.debug(f"启动心跳失败: {e}")
 
     def _run_self_check_async(self):
-        """后台线程运行自检，不阻塞UI"""
         import threading
         threading.Thread(target=self._run_self_check, daemon=True).start()
 
@@ -206,7 +204,7 @@ class ClientGUI:
                        borderwidth=1,
                        relief="solid")
         style.map("Danger.TButton",
-                 bordercolor=[("!active", theme["danger_button_border"])])
+                 bordercolor=[("!active", theme["danger_button_border")])
 
         style.configure("Treeview",
                        font=FONT_TABLE,
