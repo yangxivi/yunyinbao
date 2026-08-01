@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}打印任务 - {{ app_name }}{% endblock %}
+{% block page_title %}打印任务{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <span>任务列表</span>
+        <div>
+            <a href="/tasks?status=pending" class="btn btn-default btn-sm">等待中</a>
+            <a href="/tasks?status=printing" class="btn btn-default btn-sm">打印中</a>
+            <a href="/tasks?status=completed" class="btn btn-default btn-sm">已完成</a>
+            <a href="/tasks?status=failed" class="btn btn-default btn-sm">失败</a>
+            <a href="/tasks" class="btn btn-default btn-sm">全部</a>
+            <a href="/tasks/export" class="btn btn-primary btn-sm">导出CSV</a>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>任务ID</th>
+                <th>用户</th>
+                <th>设备</th>
+                <th>打印机</th>
+                <th>文件名</th>
+                <th>页数</th>
+                <th>份数</th>
+                <th>状态</th>
+                <th>提交时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in tasks %}
+            <tr>
+                <td>{{ t.task_id }}</td>
+                <td>{{ t.username or '-' }}</td>
+                <td>{{ t.device_name or '-' }}</td>
+                <td>{{ t.printer_name }}</td>
+                <td>{{ t.file_name }}</td>
+                <td>{{ t.pages }}</td>
+                <td>{{ t.copies }}</td>
+                <td>
+                    {% if t.status == 'completed' %}
+                    <span class="tag tag-green">已完成</span>
+                    {% elif t.status == 'printing' %}
+                    <span class="tag tag-blue">打印中</span>
+                    {% elif t.status == 'pending' %}
+                    <span class="tag tag-orange">等待中</span>
+                    {% elif t.status == 'failed' %}
+                    <span class="tag tag-red">失败</span>
+                    {% elif t.status == 'cancelled' %}
+                    <span class="tag tag-gray">已取消</span>
+                    {% elif t.status == 'expired' %}
+                    <span class="tag tag-gray">已过期</span>
+                    {% else %}
+                    <span class="tag tag-gray">{{ t.status }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ t.created_at|datetime_format }}</td>
+                <td>
+                    {% if t.status == 'pending' %}
+                    <a href="/tasks/{{ t.task_id }}/cancel" class="btn btn-warning btn-sm" onclick="return confirm('确定取消？')">取消</a>
+                    {% endif %}
+                    {% if t.status in ['failed', 'cancelled', 'completed'] %}
+                    <a href="/tasks/{{ t.task_id }}/retry" class="btn btn-success btn-sm">重试</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10" style="text-align:center;color:#999;padding:30px">暂无数据</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

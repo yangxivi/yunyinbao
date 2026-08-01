@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}系统设置 - {{ app_name }}{% endblock %}
+{% block page_title %}系统设置{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <span>服务设置</span>
+    </div>
+    <form method="post" action="/settings/save">
+        <div class="form-row">
+            <label>打印服务端口:</label>
+            <input type="number" name="server.port" value="{{ config.server.port }}" style="max-width:200px;">
+        </div>
+        <div class="form-row">
+            <label>Web管理端口:</label>
+            <input type="number" name="server.web_port" value="{{ config.server.web_port }}" style="max-width:200px;">
+        </div>
+        <div class="form-row">
+            <label>设备访问码:</label>
+            <input type="text" name="server.access_code" value="{{ config.server.access_code }}" style="max-width:200px;">
+        </div>
+        <div class="card-header" style="margin-top:20px;">
+            <span>安全设置</span>
+        </div>
+        <div class="form-row">
+            <label>启用传输加密:</label>
+            <input type="checkbox" name="security.encrypt_transfer" {% if config.security.encrypt_transfer %}checked{% endif %} style="flex:none;width:auto;">
+        </div>
+        <div class="form-row">
+            <label>启用IP白名单:</label>
+            <input type="checkbox" name="security.use_whitelist" {% if config.security.use_whitelist %}checked{% endif %} style="flex:none;width:auto;">
+        </div>
+        <div class="form-row">
+            <label>白名单IP:</label>
+            <input type="text" name="security.whitelist" value="{{ config.security.whitelist|join(',') }}" placeholder="多个IP用逗号分隔">
+        </div>
+        <div style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">保存设置</button>
+            <span style="color:#999;font-size:12px;margin-left:10px;">修改端口后需重启服务生效</span>
+        </div>
+    </form>
+</div>
+{% endblock %}
