@@ -22,3 +22,9 @@ uploads/
 Thumbs.db
 *.tmp
 *.bak
+
+# WorkBuddy 内部目录（非项目源码）
+.workbuddy/
+
+# 第三方打印引擎（打包时需放在 tools/ 下，但不纳入版本库）
+tools/SumatraPDF.exe

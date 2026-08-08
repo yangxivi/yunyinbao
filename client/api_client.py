@@ -92,6 +92,7 @@ class _Response:
             return {}
 
 
+# 模拟 requests 异常类，保留兼容性
 class _RequestException(Exception):
     pass
 
@@ -102,6 +103,7 @@ class exceptions:
 
 
 class requests:
+    """requests 兼容接口，内部用 urllib 实现"""
     exceptions = exceptions
     post = staticmethod(lambda *a, **kw: _HTTPClient().post(*a, **kw))
     get = staticmethod(lambda *a, **kw: _HTTPClient().get(*a, **kw))
@@ -212,6 +214,7 @@ class PrintClient:
             fail_count = 0
             while True:
                 if not self.is_connected:
+                    # 已断开，如果有保存的配置，尝试自动重连
                     if self.server_url and self.access_code and fail_count < 10:
                         fail_count += 1
                         try:
@@ -427,6 +430,7 @@ class PrintClient:
         return []
 
     def clear_my_tasks(self, status=None):
+        """清空我的任务"""
         if not self.is_connected:
             return 0, "未连接服务端"
         
@@ -470,41 +474,11 @@ class PrintClient:
         except Exception as e:
             return False, str(e)
 
-    def quick_print(self, file_path, printer_id=None, copies=1, color_mode="black"):
-        if not self.is_connected:
-            return False, "未连接服务端"
-        
-        if printer_id is None and self.printers:
-            for p in self.printers:
-                if p.get('is_default'):
-                    printer_id = p['id']
-                    break
-            if printer_id is None and self.printers:
-                printer_id = self.printers[0]['id']
-        
-        if printer_id is None:
-            return False, "没有可用的打印机"
-        
-        success, msg, upload_info = self.upload_file(file_path)
-        if not success:
-            return False, msg
-        
-        success, msg, task_id = self.submit_print(
-            printer_id=printer_id,
-            file_name=upload_info['file_name'],
-            file_path=upload_info['file_path'],
-            file_size=upload_info['file_size'],
-            pages=upload_info.get('pages', 0),
-            copies=copies,
-            color_mode=color_mode
-        )
-        
-        return success, msg if not success else task_id
-
     def disconnect(self):
         self.is_connected = False
     
     def clear_saved_config(self):
+        """清除保存的连接配置（忘记连接）"""
         self.server_url = None
         self.access_code = None
         self.user_id = None
@@ -522,6 +496,7 @@ class PrintClient:
             return False
 
     def get_local_printers(self):
+        """获取本地系统打印机列表"""
         printers = []
         try:
             import win32print

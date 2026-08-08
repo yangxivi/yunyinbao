@@ -67,12 +67,15 @@ class TaskScheduler:
             row = conn.execute(
                 "SELECT * FROM print_tasks WHERE task_id = ?", (task_id,)
             ).fetchone()
+            
             if not row:
                 conn.close()
                 return
+            
             if row['status'] != 'pending':
                 conn.close()
                 return
+            
             if row['expires_at'] and row['expires_at'] < time.time():
                 conn.execute(
                     "UPDATE print_tasks SET status = 'expired' WHERE task_id = ?",
@@ -82,14 +85,17 @@ class TaskScheduler:
                 conn.close()
                 self._notify_status(task_id, 'expired')
                 return
+            
             with self._lock:
                 self.current_task = task_id
+            
             conn.execute(
                 "UPDATE print_tasks SET status = 'printing', started_at = ? WHERE task_id = ?",
                 (time.time(), task_id)
             )
             conn.commit()
             self._notify_status(task_id, 'printing')
+            
             printer_name = row['printer_name']
             file_path = row['file_path']
             copies = row['copies']
@@ -104,20 +110,25 @@ class TaskScheduler:
             margin_right = row['margin_right'] if 'margin_right' in row.keys() else 0
             center_horizontal = row['center_horizontal'] if 'center_horizontal' in row.keys() else 0
             center_vertical = row['center_vertical'] if 'center_vertical' in row.keys() else 0
+
             conn.close()
+
             if not os.path.exists(file_path):
                 self._update_task_status(task_id, 'failed', '文件不存在')
                 self._notify_status(task_id, 'failed', '文件不存在')
                 return
+
             success, msg = self.print_engine.print_file(
                 file_path, printer_name, copies, color_mode, duplex, paper_size, page_range,
                 orientation, margin_top, margin_bottom, margin_left, margin_right,
                 center_horizontal, center_vertical
             )
+            
             if success:
                 pages = row['pages'] or 0
                 if pages > 0:
                     self._update_user_pages(row['user_id'], pages * copies)
+                
                 self._update_task_status(task_id, 'completed', msg)
                 self._notify_status(task_id, 'completed', msg)
                 self._add_log(task_id, row['user_id'], 'print_complete', f"打印完成: {msg}")
@@ -125,8 +136,10 @@ class TaskScheduler:
                 self._update_task_status(task_id, 'failed', msg)
                 self._notify_status(task_id, 'failed', msg)
                 self._add_log(task_id, row['user_id'], 'print_failed', f"打印失败: {msg}")
+            
             with self._lock:
                 self.current_task = None
+                
         except Exception as e:
             logger.error(f"处理任务 {task_id} 失败: {e}")
             self._update_task_status(task_id, 'failed', str(e))
@@ -139,6 +152,7 @@ class TaskScheduler:
             conn = self.db.get_db()
             now = time.time()
             expires = now + 24 * 3600
+            
             conn.execute(
                 """INSERT INTO print_tasks
                 (task_id, user_id, username, device_id, device_name, printer_id, printer_name,
@@ -177,8 +191,10 @@ class TaskScheduler:
             )
             conn.commit()
             conn.close()
+            
             self.task_queue.put(task_info['task_id'])
             self._add_log(task_info['task_id'], task_info.get('user_id'), 'submit', '任务已提交')
+            
             return task_info['task_id']
         except Exception as e:
             logger.error(f"提交任务失败: {e}")
@@ -190,23 +206,29 @@ class TaskScheduler:
             row = conn.execute(
                 "SELECT * FROM print_tasks WHERE task_id = ?", (task_id,)
             ).fetchone()
+            
             if not row:
                 conn.close()
                 return False, "任务不存在"
+            
             if user_id and row['user_id'] != user_id:
                 conn.close()
                 return False, "无权取消此任务"
+            
             if row['status'] not in ('pending',):
                 conn.close()
                 return False, "任务已开始处理，无法取消"
+            
             conn.execute(
                 "UPDATE print_tasks SET status = 'cancelled', completed_at = ? WHERE task_id = ?",
                 (time.time(), task_id)
             )
             conn.commit()
             conn.close()
+            
             self._notify_status(task_id, 'cancelled')
             self._add_log(task_id, row['user_id'], 'cancel', '任务已取消')
+            
             return True, "已取消"
         except Exception as e:
             return False, str(e)
@@ -217,12 +239,15 @@ class TaskScheduler:
             row = conn.execute(
                 "SELECT * FROM print_tasks WHERE task_id = ?", (task_id,)
             ).fetchone()
+            
             if not row:
                 conn.close()
                 return False, "任务不存在"
+            
             new_task_id = f"R{row['task_id']}"[-20:]
             now = time.time()
             expires = now + 24 * 3600
+            
             conn.execute(
                 """INSERT INTO print_tasks
                 (task_id, user_id, username, device_id, device_name, printer_id, printer_name,
@@ -248,6 +273,7 @@ class TaskScheduler:
             )
             conn.commit()
             conn.close()
+            
             self.task_queue.put(new_task_id)
             return True, new_task_id
         except Exception as e:
@@ -277,6 +303,7 @@ class TaskScheduler:
             return []
 
     def get_device_tasks(self, device_id, limit=50):
+        """按设备ID查询任务列表"""
         try:
             conn = self.db.get_db()
             rows = conn.execute(
@@ -290,6 +317,7 @@ class TaskScheduler:
             return []
 
     def clear_user_tasks(self, user_id, status=None):
+        """清空用户任务（不删除等待中和正在打印的任务）"""
         try:
             conn = self.db.get_db()
             safe_statuses = ('completed', 'failed', 'cancelled', 'expired')
@@ -317,6 +345,7 @@ class TaskScheduler:
             return 0
 
     def clear_device_tasks(self, device_id, status=None):
+        """清空设备任务（不删除等待中和正在打印的任务）"""
         try:
             conn = self.db.get_db()
             safe_statuses = ('completed', 'failed', 'cancelled', 'expired')
@@ -389,6 +418,7 @@ class TaskScheduler:
             row = conn.execute(
                 "SELECT * FROM users WHERE id = ?", (user_id,)
             ).fetchone()
+            
             if row:
                 if row['last_reset_date'] != today:
                     conn.execute(

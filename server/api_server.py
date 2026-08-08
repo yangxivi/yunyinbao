@@ -23,6 +23,7 @@ from server.env_check import EnvChecker
 logger = logging.getLogger(__name__)
 
 def _resource_path(rel_path):
+    """获取资源路径：开发模式下相对于源码根目录，打包后相对于临时解压目录(_MEIPASS)"""
     if getattr(sys, 'frozen', False):
         base = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
     else:
@@ -156,6 +157,7 @@ def create_app(config, existing_managers=None):
         if file.filename == '':
             return jsonify({"success": False, "msg": "文件名为空"}), 400
         
+        # 自定义安全文件名处理：保留中文，只替换路径分隔符和危险字符
         original_filename = file.filename
         safe_name = original_filename.replace('\\', '_').replace('/', '_').replace('..', '_')
         safe_name = ''.join(c for c in safe_name if c not in '\x00\n\r\t')
@@ -358,7 +360,9 @@ def create_app(config, existing_managers=None):
     def env_check():
         results = env_checker.check_all()
         return jsonify({"success": True, "results": results})
-
+    
+    # ==================== Web管理后台路由 ====================
+    
     @app.template_filter('datetime_format')
     def datetime_format(value):
         if not value:
@@ -471,7 +475,7 @@ def create_app(config, existing_managers=None):
         is_shared = 1 if data.get('is_shared') == 'on' else 0
         is_default = 1 if data.get('is_default') == 'on' else 0
         paper_size = data.get('paper_size', 'A4')
-        color_mode = data.get('color_mode', '')
+        color_mode = data.get('color_mode', '')  # 空串表示自动检测
         duplex = data.get('duplex', 'simplex')
 
         pid = printer_mgr.add_printer(

@@ -7,10 +7,12 @@
         <span>近7天打印趋势</span>
     </div>
     <div style="height:300px;display:flex;align-items:flex-end;justify-content:space-around;padding:20px 0;">
+        {% set max_pages = daily_data|map(attribute='pages')|max|default(1) %}
+        {% if max_pages == 0 %}{% set max_pages = 1 %}{% endif %}
         {% for d in daily_data %}
         <div style="text-align:center;flex:1;">
             <div style="font-size:12px;color:#1890ff;margin-bottom:5px;">{{ d.pages }}页</div>
-            <div style="background:#1890ff;width:40px;margin:0 auto;border-radius:4px 4px 0 0;height:20px;min-height:5px;"></div>
+            <div style="background:linear-gradient(180deg,#1890ff,#69c0ff);width:40px;margin:0 auto;border-radius:4px 4px 0 0;height:{{ (d.pages / max_pages * 200)|int if max_pages > 0 else 0 }}px;min-height:5px;"></div>
             <div style="font-size:12px;color:#666;margin-top:8px;">{{ d.date }}</div>
         </div>
         {% endfor %}

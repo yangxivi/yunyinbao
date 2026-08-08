@@ -21,10 +21,22 @@
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             width: 380px;
         }
-        .logo { text-align: center; margin-bottom: 30px; }
-        .logo h1 { color: #667eea; font-size: 28px; margin-bottom: 5px; }
-        .logo p { color: #999; font-size: 13px; }
-        .form-group { margin-bottom: 20px; }
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo h1 {
+            color: #667eea;
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+        .logo p {
+            color: #999;
+            font-size: 13px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
         .form-group label {
             display: block;
             margin-bottom: 8px;
@@ -39,7 +51,10 @@
             font-size: 14px;
             transition: border-color 0.3s;
         }
-        .form-group input:focus { outline: none; border-color: #667eea; }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
         .btn-login {
             width: 100%;
             padding: 12px;
@@ -51,13 +66,22 @@
             cursor: pointer;
             transition: transform 0.2s;
         }
-        .btn-login:hover { transform: translateY(-2px); }
+        .btn-login:hover {
+            transform: translateY(-2px);
+        }
         .error {
-            background: #fee; color: #c33; padding: 10px;
-            border-radius: 5px; margin-bottom: 20px; font-size: 13px;
+            background: #fee;
+            color: #c33;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 13px;
         }
         .hint {
-            text-align: center; margin-top: 20px; color: #999; font-size: 12px;
+            text-align: center;
+            margin-top: 20px;
+            color: #999;
+            font-size: 12px;
         }
     </style>
 </head>
@@ -67,9 +91,11 @@
             <h1>🖨️ {{ app_name }}</h1>
             <p>智能云打印管理后台 v{{ version }}</p>
         </div>
+        
         {% if error %}
         <div class="error">{{ error }}</div>
         {% endif %}
+        
         <form method="post" action="/login">
             <div class="form-group">
                 <label>用户名</label>
@@ -81,6 +107,7 @@
             </div>
             <button type="submit" class="btn-login">登 录</button>
         </form>
+        
         <div class="hint">默认账号: admin / admin123</div>
     </div>
 </body>

@@ -61,7 +61,7 @@
     </table>
 </div>
 
-<div id="addDialog" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+<div id="addDialog" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:none">
     <div style="background:white;border-radius:8px;padding:30px;width:450px;">
         <h3 style="margin-bottom:20px;">添加用户</h3>
         <form method="post" action="/users/add">
@@ -101,7 +101,11 @@
 </div>
 
 <script>
-function showAddDialog() { document.getElementById('addDialog').style.display = 'flex'; }
-function hideAddDialog() { document.getElementById('addDialog').style.display = 'none'; }
+function showAddDialog() {
+    document.getElementById('addDialog').style.display = 'flex';
+}
+function hideAddDialog() {
+    document.getElementById('addDialog').style.display = 'none';
+}
 </script>
 {% endblock %}

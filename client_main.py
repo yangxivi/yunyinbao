@@ -11,18 +11,24 @@ def _get_app_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 def _check_single_instance():
+    """检查是否已有实例在运行，使用Windows Mutex"""
     try:
         import ctypes
         from ctypes import wintypes
+        
         mutex_name = "Global\\YunYinBao_Client_Mutex_2026"
+        
         CreateMutex = ctypes.windll.kernel32.CreateMutexW
         CreateMutex.argtypes = [wintypes.LPCVOID, wintypes.BOOL, wintypes.LPCWSTR]
         CreateMutex.restype = wintypes.HANDLE
+        
         GetLastError = ctypes.windll.kernel32.GetLastError
         GetLastError.argtypes = []
         GetLastError.restype = wintypes.DWORD
+        
         mutex = CreateMutex(None, True, mutex_name)
         ERROR_ALREADY_EXISTS = 183
+        
         if GetLastError() == ERROR_ALREADY_EXISTS:
             return False
         return True
@@ -30,25 +36,31 @@ def _check_single_instance():
         return True
 
 def _setup_logging():
+    """配置日志：开发模式(console=True)输出到控制台，打包后(console=False)写入日志文件"""
     app_dir = _get_app_dir()
     log_dir = os.path.join(app_dir, 'logs')
     try:
         os.makedirs(log_dir, exist_ok=True)
     except Exception:
         log_dir = tempfile.gettempdir()
+
     log_file = os.path.join(log_dir, 'client.log')
+
     handlers = []
     try:
         handlers.append(logging.FileHandler(log_file, encoding='utf-8'))
     except Exception:
         pass
+
     try:
         handlers.append(logging.StreamHandler())
     except Exception:
         pass
+
     if not handlers:
         logging.basicConfig(level=logging.INFO)
         return
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -81,6 +93,7 @@ def main():
         app.run()
     except Exception as e:
         logger.error(f"程序启动失败: {e}", exc_info=True)
+        # 写入崩溃日志文件（用于无控制台环境下排错）
         try:
             crash_dir = os.path.join(_get_app_dir(), 'logs')
             os.makedirs(crash_dir, exist_ok=True)
@@ -92,6 +105,8 @@ def main():
             logger.info(f"崩溃日志已写入: {crash_file}")
         except Exception:
             pass
+
+        # 如果有控制台，打印错误
         try:
             import tkinter as tk
             from tkinter import messagebox
