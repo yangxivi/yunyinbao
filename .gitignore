@@ -1,30 +1,63 @@
-# Python
-__pycache__/
-*.py[cod]
-venv/
-.venv/
-env/
+# ============================================================
+# 云印宝 Python / PyInstaller 通用 .gitignore
+# ============================================================
+
+# --- 构建产物 ---
 build/
+build_*/
 dist/
-*.spec.bak
-warn-*.txt
-xref-*.html
+dist_*/
+release/
+*.egg-info
+
+# --- 运行时数据（用户私有） ---
+data/
 logs/
-*.log
-data/yunyinbao.db
-data/*.db-journal
 uploads/
-.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.so
+
+# --- 备份文件 ---
+*.bak
+*.bak2
+*.old
+*~
+
+# --- IDE / 编辑器 ---
 .vscode/
+.idea/
 *.swp
-*.swo
 .DS_Store
 Thumbs.db
+
+# --- Windows 临时文件 ---
 *.tmp
-*.bak
+*.temp
+*.lnk
+Desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
 
-# WorkBuddy 内部目录（非项目源码）
-.workbuddy/
-
-# 第三方打印引擎（打包时需放在 tools/ 下，但不纳入版本库）
+# --- 项目自带脚本产生的中间文件 ---
+# SumatraPDF.exe 由 NSIS 安装时单独下载/包含，不入 git（避免 16MB 二进制）
 tools/SumatraPDF.exe
+# NSIS 临时构建产物
+云印宝安装程序.exe
+yunyinbao_setup_tmp.exe
+
+# --- 测试 / 调试 ---
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# --- 环境 ---
+.env
+.venv/
+venv/
+env/
+.python-version

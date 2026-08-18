@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 class TaskScheduler:
+    MAX_AUTO_RETRIES = 2  # 打印失败后自动重试次数（首次失败后可再自动重试 2 次）
+
     def __init__(self, db, printer_manager, print_engine):
         self.db = db
         self.printer_manager = printer_manager
@@ -19,6 +21,7 @@ class TaskScheduler:
         self.current_task = None
         self._lock = threading.Lock()
         self._status_callbacks = []
+        self._retry_counts = {}  # task_id -> 已自动重试次数
 
     def start(self):
         if self.running:
@@ -129,10 +132,24 @@ class TaskScheduler:
                 if pages > 0:
                     self._update_user_pages(row['user_id'], pages * copies)
                 
+                self._retry_counts.pop(task_id, None)
                 self._update_task_status(task_id, 'completed', msg)
                 self._notify_status(task_id, 'completed', msg)
                 self._add_log(task_id, row['user_id'], 'print_complete', f"打印完成: {msg}")
             else:
+                # 失败自动重试：未超过次数则重新排队，否则标记失败
+                retry_count = self._retry_counts.get(task_id, 0)
+                if retry_count < self.MAX_AUTO_RETRIES:
+                    self._retry_counts[task_id] = retry_count + 1
+                    self._update_task_status(task_id, 'pending', f'自动重试第 {retry_count + 1} 次: {msg}')
+                    self._notify_status(task_id, 'retrying', msg)
+                    self._add_log(task_id, row['user_id'], 'retry',
+                                  f"打印失败，自动重试 {retry_count + 1}/{self.MAX_AUTO_RETRIES}: {msg}")
+                    self.task_queue.put(task_id)
+                    with self._lock:
+                        self.current_task = None
+                    return
+                self._retry_counts.pop(task_id, None)
                 self._update_task_status(task_id, 'failed', msg)
                 self._notify_status(task_id, 'failed', msg)
                 self._add_log(task_id, row['user_id'], 'print_failed', f"打印失败: {msg}")

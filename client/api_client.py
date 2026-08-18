@@ -474,6 +474,37 @@ class PrintClient:
         except Exception as e:
             return False, str(e)
 
+    def quick_print(self, file_path, printer_id=None, copies=1, color_mode="black"):
+        if not self.is_connected:
+            return False, "未连接服务端"
+        
+        if printer_id is None and self.printers:
+            for p in self.printers:
+                if p.get('is_default'):
+                    printer_id = p['id']
+                    break
+            if printer_id is None and self.printers:
+                printer_id = self.printers[0]['id']
+        
+        if printer_id is None:
+            return False, "没有可用的打印机"
+        
+        success, msg, upload_info = self.upload_file(file_path)
+        if not success:
+            return False, msg
+        
+        success, msg, task_id = self.submit_print(
+            printer_id=printer_id,
+            file_name=upload_info['file_name'],
+            file_path=upload_info['file_path'],
+            file_size=upload_info['file_size'],
+            pages=upload_info.get('pages', 0),
+            copies=copies,
+            color_mode=color_mode
+        )
+        
+        return success, msg if not success else task_id
+
     def disconnect(self):
         self.is_connected = False
     

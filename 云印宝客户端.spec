@@ -8,7 +8,9 @@ a = Analysis(
     ['client_main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('client/K.ico', 'client'),
+    ],
     hiddenimports=[
         'pystray._win32',
         'PIL._tkinter_finder',
@@ -52,9 +54,8 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
+    [],
+    exclude_binaries=True,
     name='云印宝客户端',
     debug=False,
     bootloader_ignore_signals=False,
@@ -66,4 +67,16 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='K.ico',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='云印宝客户端',
 )

@@ -1,342 +1,197 @@
-# 云印宝 - 私有化智能云打印系统
+# 云印宝 YunYinBao
 
-## 一、系统概述
+> **让本地打印机变成网络共享打印机** —— 把连接打印机的那台 Windows 电脑变成服务端，其他设备（PC / 手机 / 平板）通过客户端远程提交打印任务，全程零人工介入。
 
-云印宝是一套私有化部署的智能云打印系统，对标钉钉智能云打印核心能力，实现局域网、无线网跨设备共享打印。
+## 一、产品定位
 
-### 系统组成
-- **打印服务端**：部署在连接打印机的Windows主机上，统一管理打印机和打印任务
-- **打印客户端**：安装在企业内所有需要发起打印的Windows电脑上
-- **Web管理后台**：私有化网页端，提供账号管理、打印统计、运维管理功能
+把任意一台 Windows 电脑（无论有没有显示器）变成一个**远程打印服务器**：
 
-### 核心特性
-- ✅ 私有化部署，数据完全本地存储
-- ✅ 不限打印机品牌型号，只要Windows能驱动就能用
-- ✅ 支持局域网内网 + 外网远程打印
-- ✅ 多打印机管理、任务队列调度
-- ✅ 用户权限管理、日打印页数限制
-- ✅ 设备管理、黑白名单
-- ✅ 全量打印日志、Excel导出
-- ✅ 极低资源占用，后台静默运行
+- 装在「连接了打印机的电脑」上 → 启动 **云印宝服务端**
+- 装在「想打文件的设备」上 → 启动 **云印宝客户端**，填入服务端访问码 → 提交打印
+- 后台用 Flask 接收任务 → 用 win32print / win32com / SumatraPDF 完成静默打印
+- 文件传过去 → 打印机自动出纸，**完全不需要有人在打印机旁边守着**
 
----
+支持的场景：
+- 家里打印机只连着一台老电脑，但你想在沙发上用手机直接发文件去打印
+- 小型办公场景，多个员工向同一台打印机发文档
+- Cloudflare 命名隧道 + 服务端固定域名（如 `print.xivi.cc.cd`）打通公网，手机 4G/5G 也能打
 
-## 二、快速部署指南
+## 二、架构
 
-### 环境要求
-- 操作系统：Windows 10 / Windows 11 / Windows Server 2016+
-- Python 3.8+（开发模式需要，打包后不需要）
-- 打印机已正确安装驱动并能本地正常打印
-
-### 方式一：直接运行（开发/测试用）
-
-```bash
-# 1. 安装依赖
-pip install -r requirements.txt
-
-# 2. 启动打印服务端
-python server_main.py
-
-# 3. 启动Web管理后台（可选，也可以在服务端GUI中操作）
-python web_main.py
-
-# 4. 在客户端电脑启动客户端
-python client_main.py
+```
+┌──────────────┐         HTTP/JSON         ┌──────────────────┐
+│  云印宝客户端 │  ──────────────────────▶   │  云印宝服务端     │
+│  (tkinter)   │   POST /api/print/submit   │  (Flask + tkinter) │
+│              │   GET  /api/tasks         │                    │
+│  文件预览     │                           │  ├─ print_engine   │
+│  任务状态     │                           │  │   ├─ win32print │
+│  设备绑定     │                           │  │   ├─ win32com   │
+└──────────────┘                            │  │   └─ SumatraPDF │
+                                            │  ├─ task_scheduler│
+                                            │  ├─ user_manager  │
+                                            │  └─ device_manager│
+                                            └────────┬───────────┘
+                                                     │ win32print API
+                                                     ▼
+                                                ┌─────────┐
+                                                │ 本地打印机 │
+                                                └─────────┘
 ```
 
-### 方式二：打包成EXE（生产部署推荐）
-
-```bash
-# 运行一键打包脚本
-build_all.bat
-
-# 打包完成后在 dist 目录下生成：
-# - 云印宝服务端.exe
-# - 云印宝客户端.exe
-```
-
----
-
-## 三、服务端部署教程
-
-### 3.1 安装启动
-
-1. 将 `云印宝服务端.exe` 复制到连接打印机的Windows电脑上
-2. 双击运行，首次启动会自动进行环境校验
-3. 环境校验包含4项：
-   - 打印机驱动检测
-   - 网络连通性检测
-   - 系统兼容性检测
-   - 运行提醒（需长期开机）
-
-### 3.2 添加打印机
-
-1. 启动服务后，切换到「打印机管理」标签页
-2. 点击「添加打印机」按钮
-3. 从下拉列表中选择本地已安装的打印机
-4. 设置连接类型（USB/网络）、纸张规格、色彩模式
-5. 勾选「共享给所有客户端」
-6. 点击「添加」完成
-
-### 3.3 查看连接信息
-
-- **内网IP**：服务端顶部状态栏显示本机局域网IP
-- **访问码**：服务端顶部状态栏显示8位设备访问码
-- **服务端口**：默认8989，可在设置中修改
-- **Web管理端口**：默认8990
-
-### 3.4 Web管理后台访问
-
-在浏览器中打开：`http://服务端IP:8990`
-
-默认管理员账号：`admin` / `admin123`
-
-> ⚠️ 首次登录后请立即修改管理员密码！
-
----
-
-## 四、客户端部署教程
-
-### 4.1 安装客户端
-
-1. 将 `云印宝客户端.exe` 复制到需要打印的员工电脑上
-2. 双击运行
-
-### 4.2 绑定服务端
-
-**方式一：通过IP绑定**
-1. 点击客户端右上角「⚙ 设置」
-2. 填写服务端IP地址（如：192.168.1.100）
-3. 填写端口（默认8989）
-4. 填写访问码（在服务端查看）
-5. 点击「连接」
-
-**方式二：通过访问码绑定**
-- 同方式一，需要同时填写IP和访问码
-
-### 4.3 发起打印
-
-客户端通过「虚拟打印」方式提交打印任务：
-
-1. 在「虚拟打印」标签页安装虚拟打印机
-2. 在任意应用软件中选择「云印宝虚拟打印机」进行打印
-3. 在弹出的任务列表中确认并提交到目标打印机
-4. 在「我的任务」标签页查看打印进度
-
-### 4.4 支持的文件格式
-- PDF文档 (.pdf)
-- Word文档 (.doc, .docx)
-- Excel表格 (.xls, .xlsx)
-- 图片文件 (.jpg, .jpeg, .png, .bmp, .gif, .tiff)
-- 文本文件 (.txt)
-
----
-
-## 五、内外网打印配置方案
-
-### 5.1 局域网打印（推荐）
-
-**适用场景**：公司内部同一局域网内的设备
-
-**配置要求**：
-- 服务端和客户端在同一网段
-- 服务端防火墙开放8989端口
-- 客户端通过内网IP连接
-
-**优点**：速度快、稳定性高、安全性好
-
-### 5.2 外网远程打印
-
-**适用场景**：异地办公、远程办公、分支机构
-
-**方案一：公网IP + 端口映射（推荐）**
-1. 服务端所在网络有公网IP
-2. 在路由器上配置端口映射：
-   - 外部端口 8989 → 内网服务端IP:8989
-   - 外部端口 8990 → 内网服务端IP:8990
-3. 客户端通过公网IP连接
-
-**方案二：VPN**
-1. 部署企业VPN
-2. 客户端先连接VPN
-3. 再通过内网IP连接服务端
-
-**方案三：内网穿透工具**
-- 使用花生壳、ngrok、frp等内网穿透工具
-- 将服务端8989端口映射到公网
-
----
-
-## 六、常见故障排查
-
-### Q1: 客户端无法连接服务端？
-
-**排查步骤**：
-1. 确认服务端已启动且状态为「运行中」
-2. 检查服务端IP和端口是否正确
-3. 检查访问码是否正确
-4. 确认客户端和服务端网络是否互通：
-   ```cmd
-   ping 服务端IP
-   telnet 服务端IP 8989
-   ```
-5. 检查Windows防火墙是否允许8989端口
-6. 检查是否有杀毒软件拦截
-
-### Q2: 打印任务提交后没反应？
-
-**排查步骤**：
-1. 在服务端「打印任务」中查看任务状态
-2. 确认打印机是否在线、有纸、有墨
-3. 确认打印机驱动正常，能本地测试打印
-4. 查看任务状态和错误信息
-5. 尝试点击「重试」重新打印
-
-### Q3: 打印机状态显示异常？
-
-**排查步骤**：
-1. 检查打印机电源是否打开
-2. 检查USB线/网线是否连接正常
-3. 在Windows「设备和打印机」中确认打印机状态
-4. 尝试打印测试页
-5. 重启打印机和打印服务
-
-### Q4: 文件上传失败？
-
-**排查步骤**：
-1. 检查文件大小（最大200MB）
-2. 检查网络连接是否稳定
-3. 确认服务端磁盘空间充足
-4. 尝试小文件测试
-
-### Q5: 忘记管理员密码？
-
-**解决方法**：
-1. 停止服务端
-2. 删除 `data/yunyinbao.db` 数据库文件（会丢失所有数据）
-3. 重新启动服务端，会自动创建默认admin账号
-
----
-
-## 七、账号权限操作手册
-
-### 7.1 角色说明
-
-| 角色 | 权限说明 |
-|------|---------|
-| 管理员 | 全部功能：打印机管理、用户管理、设备管理、全部日志、系统设置 |
-| 普通用户 | 仅能发起打印、查看自己的打印任务 |
-
-### 7.2 添加用户
-
-1. 登录Web管理后台
-2. 进入「用户管理」
-3. 点击「+ 添加用户」
-4. 填写用户名、密码、姓名、部门
-5. 选择角色（普通用户/管理员）
-6. 设置日打印页数限额（0为不限）
-7. 点击「添加」
-
-### 7.3 用户管理操作
-
-- **重置密码**：将密码重置为 `123456`
-- **禁用/启用**：禁止/允许用户登录和打印
-- **删除用户**：永久删除用户账号（admin账号不可删除）
-
----
-
-## 八、打印任务运维操作说明
-
-### 8.1 任务状态说明
-
-| 状态 | 说明 |
-|------|------|
-| 等待中 | 任务已提交，等待打印 |
-| 打印中 | 正在打印 |
-| 已完成 | 打印成功 |
-| 失败 | 打印失败，可重试 |
-| 已取消 | 用户主动取消 |
-| 已过期 | 超过24小时未打印自动过期 |
-
-### 8.2 任务操作
-
-- **取消任务**：仅等待中的任务可以取消
-- **重试任务**：失败、已取消、已完成的任务可重新提交
-- **导出日志**：导出全部打印任务为CSV格式
-
-### 8.3 日志导出
-
-支持导出全部打印日志，包含：
-- 任务ID、用户、设备
-- 打印机、文件名
-- 页数、份数、状态
-- 提交时间、完成时间
-
----
-
-## 九、系统设置说明
-
-### 9.1 服务设置
-
-- **打印服务端口**：客户端连接的端口，默认8989
-- **Web管理端口**：管理后台访问端口，默认8990
-- **设备访问码**：客户端绑定的凭证，可随机生成
-- **开机自启动**：开机自动运行服务端
-- **后台静默运行**：最小化到系统托盘
-
-### 9.2 安全设置
-
-- **启用传输加密**：加密客户端与服务端之间的数据传输
-- **启用IP白名单**：只允许白名单内的IP连接
-- **白名单IP**：多个IP用逗号分隔
-
----
-
-## 十、目录结构说明
+## 三、技术栈
+
+| 层 | 技术 |
+|---|---|
+| 服务端 Web | Flask 3.x + waitress |
+| 客户端/服务端 GUI | tkinter（Python 标准库） |
+| 静默打印（Office） | `win32com.client`（Word/Excel/PowerPoint COM 接口） |
+| 静默打印（PDF） | `SumatraPDF.exe -silent -exit-when-done` |
+| 系统托盘 | `pystray`（16x16x ICO 子图） |
+| 数据存储 | SQLite + JSON 配置文件 |
+| 打包 | PyInstaller 6.9.0（Python 3.10） |
+| 安装包 | NSIS 3.x（安装 + 自动清理旧版 + 写注册表） |
+| 公网打通 | Cloudflare 命名隧道（`cloudflared`） |
+
+## 四、目录结构
 
 ```
 云印宝/
-├── common/                 # 公共模块
-│   ├── config.py           # 配置管理
-│   ├── database.py         # 数据库操作
-│   └── utils.py            # 工具函数
-├── server/                 # 打印服务端
-│   ├── printer_manager.py  # 打印机管理
-│   ├── print_engine.py     # 打印引擎
-│   ├── task_scheduler.py   # 任务调度器
-│   ├── user_manager.py     # 用户管理
-│   ├── device_manager.py   # 设备管理
-│   ├── env_check.py        # 环境校验
-│   ├── api_server.py       # API服务
-│   └── gui.py              # 服务端GUI
-├── client/                 # 打印客户端
-│   ├── api_client.py       # API客户端
-│   └── gui.py              # 客户端GUI
-├── web/                    # Web管理后台
-│   ├── app.py              # Web应用
-│   ├── web_templates/      # HTML模板
-│   └── web_static/         # 静态资源
-├── data/                   # 数据目录
-│   ├── yunyinbao.db        # SQLite数据库
-│   └── config.json         # 配置文件
-├── uploads/                # 上传文件存储
-├── server_main.py          # 服务端入口
-├── client_main.py          # 客户端入口
-├── web_main.py             # Web后台入口
-├── requirements.txt        # 依赖清单
-├── build_all.bat           # 一键打包脚本
-└── README.md               # 本文档
+├─ client/             # 客户端 GUI（tkinter）
+├─ server/             # 服务端核心（Flask + print_engine）
+├─ common/             # 双端共享（config / database / theme / virtual_printer）
+├─ web/                # 浏览器 Web 后台（备用）
+├─ tools/              # 构建工具（make_icons.py 等）
+├─ data/               # 运行时数据库 + config.json（不入 git）
+├─ logs/               # 运行日志（不入 git）
+├─ uploads/            # 打印任务临时文件（不入 git）
+├─ client_main.py      # 客户端入口
+├─ server_main.py      # 服务端入口
+├─ web_main.py         # Web 后台入口
+├─ 云印宝客户端.spec   # PyInstaller 客户端打包配置
+├─ 云印宝服务端.spec   # PyInstaller 服务端打包配置
+├─ installer.nsi       # NSIS 安装包脚本
+├─ build_all.bat      # 一键打包双端
+└─ requirements.txt   # Python 依赖
 ```
 
----
+## 五、配置 `data/config.json`
 
-## 十一、技术支持
+```json
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 9527,
+    "access_code": "首次启动根据机器码自动生成",
+    "max_file_size_mb": 50
+  },
+  "printer": {
+    "default": "EPSON L3253 Series",
+    "auto_select": true
+  },
+  "print": {
+    "copies": 1,
+    "duplex": false,
+    "color": true
+  },
+  "ui": {
+    "theme": "tech_blue",
+    "auto_start": false
+  }
+}
+```
 
-如遇问题，请检查：
-1. Windows事件查看器中的应用程序日志
-2. 程序运行目录下的控制台输出
-3. 确保以管理员身份运行
+## 六、核心链路
 
----
+### 6.1 打印任务流转
+1. 客户端 `POST /api/print/submit`（multipart/form-data：文件 + 打印参数 + access_code）
+2. 服务端 `task_scheduler` 校验 access_code → 写入 SQLite → 推入打印队列
+3. `print_engine` 按文件类型分支：
+   - **PDF**：`SumatraPDF.exe -print-to "打印机名" -silent -exit-when-done file.pdf`
+   - **Word/Excel/PowerPoint**：`win32com` 启动 Office → `PrintOut` → `Quit`（静默不弹窗）
+   - **图片/文本**：`win32print` 直接 `StartDocPrinter` → 走系统打印处理器
+4. 任务完成/失败 → 写回 SQLite → 客户端通过 `/api/tasks` 轮询拿到结果
 
-**云印宝 v1.0.0** - 私有化智能云打印系统
+### 6.2 三层图标统一
+- **exe 文件图标**：`PyInstaller spec` 的 `icon='F.ico'/'K.ico'`
+- **窗口任务栏图标**：`root.iconbitmap('F.ico'/'K.ico')`
+- **系统托盘图标**：`pystray.Image.open('F.ico'/'K.ico')` 取 16x16 子图
+- Windows 三层缓存需分别清理：`%LocalAppData%\IconCache.db` + `thumbcache_*.db` + 任务栏固定 `.lnk`
+
+### 6.3 后台刷新（避免主线程卡顿）
+所有 I/O（打印机状态轮询、网络请求）都用 `threading.Thread(daemon=True)` 后台执行，通过 `root.after(0, callback)` 回主线程更新 UI。**tkinter 主线程不能跑任何 subprocess / 网络 / 磁盘 IO。**
+
+## 七、打包与发布
+
+### 7.1 打包双端 exe
+
+```bash
+# 一次性构建客户端、服务端两个 exe
+build_all.bat
+```
+
+或者手动：
+```bash
+"C:\Users\Administrator\.workbuddy\binaries\python\envs\py310_build\Scripts\pyinstaller.exe" \
+    --noconfirm 云印宝客户端.spec
+
+"C:\Users\Administrator\.workbuddy\binaries\python\envs\py310_build\Scripts\pyinstaller.exe" \
+    --noconfirm 云印宝服务端.spec
+```
+
+产物：`dist/云印宝客户端/云印宝客户端.exe` + `dist/云印宝服务端/云印宝服务端.exe`，每个约 22MB。
+
+### 7.2 制作 NSIS 安装包
+
+```bash
+"C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+```
+
+产物：`云印宝安装程序.exe`（23MB，LZMA 压缩）
+
+特性：
+- 强制锁定安装目录到 `%LOCALAPPDATA%\Programs\云印宝`（避免用户改到 Program Files 触发权限错误）
+- 自动检测注册表旧版并静默清理后重装
+- 双击"开始菜单 → 卸载云印宝"一键清理所有残留
+- 桌面 + 开始菜单快捷方式，服务端 F 图标 / 客户端 K 图标
+
+### 7.3 公网打通（可选）
+
+用 Cloudflare 命名隧道（`cloudflared`）：
+```bash
+cloudflared tunnel route dns yunyinbao print.xivi.cc.cd
+cloudflared tunnel run yunyinbao
+```
+
+客户端填 `print.xivi.cc.cd:9527` 即可在任何有网的地方发打印任务。
+
+## 八、安全说明
+
+- **访问码**：首次启动根据机器码自动生成 8 位 hex（`access_code`），客户端必须填对才能发任务
+- **HTTPS**：本地默认走 HTTP，公网建议套 Cloudflare（自带 HTTPS）
+- **文件类型白名单**：服务端只接受 `.pdf / .doc / .docx / .xls / .xlsx / .ppt / .pptx / .jpg / .png / .txt`
+- **文件大小限制**：默认 50MB，可在 `config.json` 调整
+
+## 九、常见问题
+
+**Q1：服务端启动后客户端连不上？**
+A：先在服务端电脑浏览器打开 `http://127.0.0.1:9527/api/status`，看到 `{"status":"ok"}` 说明 Flask 在跑。再检查 Windows 防火墙是否放行了 9527 端口。
+
+**Q2：打印 PDF 时一直弹"另存为"？**
+A：检查 `tools/SumatraPDF.exe` 是否被正确嵌入（PyInstaller `datas` 配置）。启动时看日志 `print_engine.py` 是否走到了 SumatraPDF 分支。
+
+**Q3：Office 打印弹窗？**
+A：必须用 `win32com` 走 COM 接口，且调用前先 `Dispatch` → 设 `Visible = False` → `PrintOut(Copies=1, ActivePrinter=...)`。直接 `os.startfile` 弹 Word 窗口是错的。
+
+**Q4：安装包安装时报"无法打开要写入的文件"？**
+A：v9.1+ 已修复：安装目录强制锁 `%LOCALAPPDATA%\Programs\云印宝`，不再让用户手抖改到 Program Files。
+
+## 十、版本
+
+- v9.1：客户端卡片结构改为"标题 + 内容区粗边框"分层；NSIS 修复 _internal 目录结构；安装路径权限修复；自动检测旧版清理
+- v9.0：卡片样式重刷（仿现代 SaaS 白底圆角）；F/K 角标；自动重试；弹窗反馈
+- v7：异步刷新统计卡（主线程不再卡顿）
+- v6：三层图标统一（F.ico / K.ico）
+
+## 十一、License
+
+MIT

@@ -62,23 +62,40 @@ def check_printer_exists():
     return ok and stdout == PRINTER_NAME
 
 
+def _get_capture_file():
+    """虚拟打印机静默捕获的固定输出文件（Local Port 指向此文件，不再弹"另存为"）"""
+    return os.path.join(_get_spool_dir(), "yunyinbao_capture.pdf")
+
+
 def create_virtual_printer():
     """
-    创建云印宝虚拟打印机
-    返回: (成功, 消息)
+    创建云印宝虚拟打印机（完全静默捕获）
+    使用指向固定文件的 Local Port，Microsoft Print to PDF 会直接把打印结果写入该文件，
+    不再弹出"将打印输出另存为"对话框。
     """
     if check_printer_exists():
         return True, "虚拟打印机已存在"
-    
+
     if not check_driver_exists():
-        return False, "Microsoft Print to PDF驱动未安装，请先启用Windows功能"
-    
-    ok, stdout, stderr = _run_powershell(
-        f'Add-Printer -Name "{PRINTER_NAME}" -DriverName "{DRIVER_NAME}" -PortName "FILE:"'
+        return False, "Microsoft Print to PDF驱动未安装，请先在 Windows 功能中启用"
+
+    spool_dir = _get_spool_dir()
+    capture_file = _get_capture_file()
+    port_name = capture_file  # Local Port 直接使用文件全路径，实现静默写入
+
+    # 1) 创建指向捕获文件的 Local Port（已存在则跳过）
+    _run_powershell(
+        f'if (-not (Get-PrinterPort -Name "{port_name}" -ErrorAction SilentlyContinue)) {{ '
+        f'Add-PrinterPort -Name "{port_name}" }}'
     )
-    
+
+    # 2) 用该端口创建虚拟打印机
+    ok, stdout, stderr = _run_powershell(
+        f'Add-Printer -Name "{PRINTER_NAME}" -DriverName "{DRIVER_NAME}" -PortName "{port_name}"'
+    )
+
     if ok or check_printer_exists():
-        logger.info("虚拟打印机创建成功")
+        logger.info("虚拟打印机创建成功（静默捕获端口）")
         return True, "虚拟打印机创建成功"
     else:
         logger.error(f"虚拟打印机创建失败: {stderr}")
@@ -86,10 +103,19 @@ def create_virtual_printer():
 
 
 def remove_virtual_printer():
-    """删除云印宝虚拟打印机"""
-    ok, stdout, stderr = _run_powershell(
+    """删除云印宝虚拟打印机并清理捕获端口/文件"""
+    _run_powershell(
         f'Remove-Printer -Name "{PRINTER_NAME}" -ErrorAction SilentlyContinue'
     )
+    capture_file = _get_capture_file()
+    _run_powershell(
+        f'Remove-PrinterPort -Name "{capture_file}" -ErrorAction SilentlyContinue'
+    )
+    try:
+        if os.path.exists(capture_file):
+            os.remove(capture_file)
+    except Exception:
+        pass
     if not check_printer_exists():
         logger.info("虚拟打印机已删除")
         return True
@@ -550,6 +576,7 @@ class VirtualPrinterManager:
         self._dialog_handler = None
         self._pending_jobs = {}
         self._lock = threading.Lock()
+        self._consumed_mtime = 0.0
         
     def install(self):
         """安装虚拟打印机"""
@@ -565,22 +592,23 @@ class VirtualPrinterManager:
         return check_printer_exists()
         
     def start(self):
-        """启动监控"""
+        """启动监控（完全静默：Local Port 直接写文件，不弹"另存为"对话框）"""
         if self._monitor:
             return
 
-        self._dialog_handler = DialogHandler(self.spool_dir)
-        self._dialog_handler.start()  # 持续监听保存对话框
+        # 不再依赖保存对话框自动填充（那样仍会闪一下）；
+        # 改用 Local Port 静默写入固定文件，彻底消除弹窗。
+        self._dialog_handler = None
 
         self._monitor = PrintJobMonitor(on_new_job=self._on_new_job)
         self._monitor.start()
 
-        # 启动文件监控线程，检测新生成的PDF
+        # 启动文件监控线程，检测捕获文件稳定后复制出来
         self._file_monitor_thread = threading.Thread(target=self._file_monitor_loop, daemon=True)
         self._file_monitor_running = True
         self._file_monitor_thread.start()
 
-        logger.info("虚拟打印机管理器已启动")
+        logger.info("虚拟打印机管理器已启动（静默捕获）")
         
     def stop(self):
         """停止监控"""
@@ -607,32 +635,51 @@ class VirtualPrinterManager:
             }
     
     def _file_monitor_loop(self):
-        """文件监控循环，检测新生成的PDF文件"""
-        last_files = set()
-        
-        # 初始化文件列表
-        if os.path.exists(self.spool_dir):
-            last_files = set(os.listdir(self.spool_dir))
-        
+        """
+        文件监控循环：监视 Local Port 指向的固定捕获文件。
+        当捕获文件写入稳定后，复制为唯一的输出 PDF 并交由回调处理，
+        随后删除捕获文件，供下一次打印任务重新写入。整个过程不弹任何窗口。
+        """
+        capture_file = _get_capture_file()
         while self._file_monitor_running:
             try:
-                if os.path.exists(self.spool_dir):
-                    current_files = set(os.listdir(self.spool_dir))
-                    new_files = current_files - last_files
-                    
-                    for filename in new_files:
-                        if filename.lower().endswith('.pdf'):
-                            filepath = os.path.join(self.spool_dir, filename)
-                            # 等待文件写入完成
-                            if self._wait_file_stable(filepath):
-                                logger.info(f"检测到新PDF文件: {filepath}")
-                                self._handle_captured_pdf(filepath)
-                    
-                    last_files = current_files
-                    
+                if not os.path.exists(capture_file):
+                    # 捕获文件不存在（尚未有任务，或上一次已被消费），等待下一次写入
+                    time.sleep(1)
+                    continue
+
+                st = None
+                try:
+                    st = os.stat(capture_file)
+                except Exception:
+                    st = None
+
+                # 仅当文件非空、且与上一次已处理的版本不同（mtime 变化）时才处理，
+                # 避免重复处理或删除失败导致的死锁；新任务会刷新 mtime。
+                if (st and st.st_size > 0
+                        and st.st_mtime != self._consumed_mtime
+                        and self._wait_file_stable(capture_file)):
+                    unique = os.path.join(
+                        self.spool_dir,
+                        f"printjob_{int(time.time() * 1000)}.pdf"
+                    )
+                    copied = False
+                    try:
+                        shutil.copy2(capture_file, unique)
+                        copied = True
+                    except Exception as e:
+                        logger.warning(f"复制捕获文件失败: {e}")
+                    # 释放/删除捕获文件，供下一次打印任务重新写入
+                    try:
+                        os.remove(capture_file)
+                    except Exception:
+                        pass
+                    self._consumed_mtime = st.st_mtime
+                    if copied and os.path.exists(unique) and os.path.getsize(unique) > 0:
+                        logger.info(f"检测到捕获PDF: {unique}")
+                        self._handle_captured_pdf(unique)
             except Exception as e:
                 logger.debug(f"文件监控异常: {e}")
-            
             time.sleep(1)
     
     def _wait_file_stable(self, filepath, timeout=30):

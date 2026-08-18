@@ -4,6 +4,9 @@ import time
 import logging
 import subprocess
 import ctypes
+import io
+import zipfile
+import urllib.request
 from ctypes import wintypes
 import tempfile
 
@@ -19,6 +22,9 @@ class PrintEngine:
         self._sumatra_pdf_path = None
         self._load_win32_modules()
         self._detect_sumatra_pdf()
+        # 若本地/系统均找不到 SumatraPDF，则自动下载便携版到本地缓存，
+        # 以保证 PDF/图片/文本打印始终走完全静默的 SumatraPDF 通道。
+        self._ensure_sumatra_pdf()
 
     def _load_win32_modules(self):
         """尝试加载 pywin32 模块，失败则标记为不可用"""
@@ -43,21 +49,26 @@ class PrintEngine:
         try:
             import winreg
             possible_paths = []
-
+            
+            # 优先级1: 程序内置的 tools/SumatraPDF.exe
+            # - 开发/未打包：项目根目录的 tools/ 下
+            # - PyInstaller 打包（onedir）：资源被放到 _internal（即 sys._MEIPASS）下的 tools/
             if getattr(sys, 'frozen', False):
-                # PyInstaller 单文件打包：数据文件解压到 sys._MEIPASS，
-                # sys.executable 也在该临时目录内，二者同目录。
+                base_dir = os.path.dirname(sys.executable)
                 meipass = getattr(sys, '_MEIPASS', None)
                 if meipass:
                     possible_paths.append(os.path.join(meipass, "tools", "SumatraPDF.exe"))
-                    possible_paths.append(os.path.join(meipass, "SumatraPDF.exe"))
-                exe_dir = os.path.dirname(sys.executable)
-                possible_paths.append(os.path.join(exe_dir, "tools", "SumatraPDF.exe"))
-                possible_paths.append(os.path.join(exe_dir, "SumatraPDF.exe"))
             else:
-                # 源码运行：项目根目录下的 tools/SumatraPDF.exe
                 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                possible_paths.append(os.path.join(base_dir, "tools", "SumatraPDF.exe"))
+            builtin_path = os.path.join(base_dir, "tools", "SumatraPDF.exe")
+            if os.path.exists(builtin_path):
+                possible_paths.append(builtin_path)
+
+            # 优先级2: 与exe同目录
+            if getattr(sys, 'frozen', False):
+                same_dir = os.path.join(os.path.dirname(sys.executable), "SumatraPDF.exe")
+                if os.path.exists(same_dir):
+                    possible_paths.append(same_dir)
             
             # 优先级3: 从注册表查找
             for root in [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]:
@@ -89,6 +100,85 @@ class PrintEngine:
                 logger.info("未检测到 SumatraPDF，PDF 将使用系统默认方式打印")
         except Exception as e:
             logger.warning(f"检测 SumatraPDF 失败: {e}")
+
+    def _ensure_sumatra_pdf(self):
+        """
+        若尚未检测到 SumatraPDF，则尝试自动下载便携版到本地缓存目录，
+        以确保 PDF / 图片 / 文本始终能通过 SumatraPDF 实现完全静默打印。
+        下载失败不会抛异常，仅记录警告，届时 PDF 会回退到隐藏式 printto。
+        """
+        if self._sumatra_pdf_path:
+            return
+
+        cache_dir = self._sumatra_cache_dir()
+        cached = os.path.join(cache_dir, "SumatraPDF.exe")
+        if os.path.exists(cached):
+            self._sumatra_pdf_path = cached
+            logger.info(f"使用缓存的 SumatraPDF: {cached}")
+            return
+
+        logger.info("未检测到 SumatraPDF，尝试自动下载便携版（首次运行）...")
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            # 便携版 zip 内含 SumatraPDF.exe
+            urls = [
+                "https://github.com/sumatrapdfreader/sumatrapdf/releases/download/3.5.2/SumatraPDF-3.5.2-64.zip",
+                "https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64.zip",
+            ]
+            import io
+            import zipfile
+            for url in urls:
+                try:
+                    req = urllib.request.Request(
+                        url,
+                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                    )
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        data = resp.read()
+                    zf = zipfile.ZipFile(io.BytesIO(data))
+                    # 优先取顶层的 SumatraPDF.exe
+                    target = None
+                    for name in zf.namelist():
+                        if name.lower().endswith("sumatrapdf.exe"):
+                            target = name
+                            break
+                    if not target:
+                        continue
+                    with open(cached, "wb") as f:
+                        f.write(zf.read(target))
+                    if os.path.getsize(cached) > 100000:
+                        self._sumatra_pdf_path = cached
+                        logger.info(f"SumatraPDF 已自动下载至: {cached}")
+                        return
+                    else:
+                        try:
+                            os.remove(cached)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.warning(f"从 {url} 下载 SumatraPDF 失败: {e}")
+                    continue
+            logger.warning("SumatraPDF 自动下载失败，PDF 打印将回退到隐藏 printto（个别机型可能闪现窗口）")
+        except Exception as e:
+            logger.warning(f"SumatraPDF 自动下载流程异常: {e}")
+
+    def _sumatra_cache_dir(self):
+        """SumatraPDF 缓存目录：优先 exe 同目录的 tools/，否则 LOCALAPPDATA"""
+        try:
+            if getattr(sys, 'frozen', False):
+                base = os.path.dirname(sys.executable)
+                d = os.path.join(base, "tools")
+                os.makedirs(d, exist_ok=True)
+                return d
+        except Exception:
+            pass
+        local = os.environ.get('LOCALAPPDATA', tempfile.gettempdir())
+        d = os.path.join(local, "YunYinBao")
+        try:
+            os.makedirs(d, exist_ok=True)
+        except Exception:
+            pass
+        return d
 
     def _ctypes_shell_execute(self, verb, file_path, params=None, show_cmd=0):
         """
@@ -364,7 +454,7 @@ class PrintEngine:
                 logger.warning(f"图片转PDF打印失败: {e}")
 
         # ===== 第二优先级：Office 文件尝试 COM（静默） =====
-        if ext in ('.doc', '.docx', '.xls', '.xlsx') and self.win32com_client:
+        if ext in ('.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx') and self.win32com_client:
             try:
                 ok, msg = self._print_office_com(
                     file_path, printer_name, copies,
@@ -379,94 +469,48 @@ class PrintEngine:
                 errors.append(f"COM异常: {e}")
                 logger.warning(f"COM打印失败: {e}")
 
-        # ===== 第三优先级：printto 指定打印机（静默窗口） =====
-        ok, msg = self._shell_printto(file_path, printer_name)
-        if ok:
-            time.sleep(1)
-            # 多份打印：重复提交（copies=1时不需要额外循环）
-            for _ in range(copies - 1):
-                self._shell_printto(file_path, printer_name)
-                time.sleep(0.5)
-            return True, f"printto 发送到 {printer_name}（{copies}份）"
-        errors.append(f"printto: {msg}")
+        # ===== 4. 纯文本类：渲染成 PDF 后用 SumatraPDF 静默打印 =====
+        if ext in ('.txt', '.csv', '.log', '.md', '.text', '.rtf') and self._sumatra_pdf_path:
+            try:
+                pdf_path = self._text_to_pdf(file_path, paper_size, orientation)
+                if pdf_path:
+                    try:
+                        ok, msg = self._print_pdf_sumatra(
+                            pdf_path, printer_name, copies,
+                            color_mode, duplex, paper_size, page_range, orientation
+                        )
+                    finally:
+                        try:
+                            os.remove(pdf_path)
+                        except Exception:
+                            pass
+                    if ok:
+                        return True, msg
+                    errors.append(f"Text->SumatraPDF: {msg}")
+            except Exception as e:
+                errors.append(f"Text->SumatraPDF异常: {e}")
+                logger.warning(f"文本转PDF打印失败: {e}")
 
-        # ===== 第三优先级：设置默认打印机后 print =====
-        logger.info("printto失败，尝试设置默认打印机后 print")
-        if self._set_default_printer(printer_name):
-            time.sleep(0.5)
-            ok, msg = self._shell_print(file_path)
+        # ===== 5. 兜底：仅当 SumatraPDF 缺失时，使用隐藏式 printto（SW_HIDE） =====
+        # 正常情况不会走到这里（PDF/图片/文本均已用 SumatraPDF 静默处理）。
+        # 若仍走到此，说明静默组件缺失，隐藏式 printto 是最后手段，多数打印机驱动不会弹窗。
+        if not self._sumatra_pdf_path:
+            logger.warning("SumatraPDF 缺失，退回隐藏式 printto（建议联网后首次运行自动下载）")
+            ok, msg = self._shell_printto(file_path, printer_name)
             if ok:
-                time.sleep(1)
-                # 多份打印：重复提交（copies=1时不需要额外循环）
                 for _ in range(copies - 1):
-                    self._shell_print(file_path)
-                    time.sleep(0.5)
-                return True, f"默认打印机 print（{copies}份）"
-            errors.append(f"默认print: {msg}")
+                    self._shell_printto(file_path, printer_name)
+                    time.sleep(0.3)
+                return True, f"printto 发送到 {printer_name}（{copies}份，缺失静默组件）"
+            errors.append(f"printto: {msg}")
+            error_summary = " | ".join(errors[-4:])
+            logger.error(f"所有静默打印方式均失败: {error_summary}")
+            return False, f"所有静默打印方式均失败: {error_summary}"
 
-        # ===== 第四优先级：PowerShell Start-Process =====
-        try:
-            ps_cmd = (
-                f'Start-Process -FilePath "{file_path}" '
-                f'-Verb Printto -ArgumentList \'"{printer_name}"\' '
-                f'-WindowStyle Hidden -ErrorAction Stop'
-            )
-            result = subprocess.run(
-                ['powershell', '-NoProfile', '-Command', ps_cmd],
-                capture_output=True, text=True, timeout=20,
-                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-            )
-            if result.returncode == 0:
-                time.sleep(1)
-                # 多份打印：重复提交
-                for _ in range(copies - 1):
-                    subprocess.run(
-                        ['powershell', '-NoProfile', '-Command', ps_cmd],
-                        capture_output=True, text=True, timeout=20,
-                        creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-                    )
-                    time.sleep(0.5)
-                return True, f"PowerShell printto（{copies}份）"
-            err_text = (result.stderr or result.stdout or "").strip()[:200]
-            errors.append(f"PowerShell printto: {err_text}")
-        except Exception as e:
-            errors.append(f"PowerShell printto异常: {e}")
-
-        # ===== 第五优先级：PowerShell print（默认打印机已设置过）=====
-        try:
-            ps_cmd = (
-                f'Start-Process -FilePath "{file_path}" '
-                f'-Verb Print -WindowStyle Hidden -ErrorAction Stop'
-            )
-            result = subprocess.run(
-                ['powershell', '-NoProfile', '-Command', ps_cmd],
-                capture_output=True, text=True, timeout=20,
-                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-            )
-            if result.returncode == 0:
-                time.sleep(1)
-                # 多份打印：重复提交
-                for _ in range(copies - 1):
-                    subprocess.run(
-                        ['powershell', '-NoProfile', '-Command', ps_cmd],
-                        capture_output=True, text=True, timeout=20,
-                        creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-                    )
-                    time.sleep(0.5)
-                return True, f"PowerShell print（{copies}份）"
-            err_text = (result.stderr or result.stdout or "").strip()[:200]
-            errors.append(f"PowerShell print: {err_text}")
-        except Exception as e:
-            errors.append(f"PowerShell print异常: {e}")
-
-        # 注意：不再使用 os.startfile(file_path, "print") 作为兜底，
-        # 因为该方式必然拉起关联程序的打印窗口/对话框，破坏静默打印。
-        # PDF/图片统一走 SumatraPDF 静默打印，Office 走 COM 静默打印，
-        # 其余类型由上面的 ShellExecute/PowerShell（均为隐藏窗口）兜底。
-
-        error_summary = " | ".join(errors[-4:])
-        logger.error(f"所有打印方式均失败: {error_summary}")
-        return False, f"所有打印方式均失败: {error_summary}"
+        # 走到这里说明是 SumatraPDF/COM 都不支持的未知类型
+        error_summary = " | ".join(errors[-4:]) or "未知文件类型且无可用的静默打印通道"
+        logger.error(f"打印失败: {error_summary}")
+        return False, f"打印失败: {error_summary}"
 
     def _print_pdf_sumatra(self, file_path, printer_name, copies=1,
                            color_mode="black", duplex="simplex", paper_size="A4",
@@ -531,7 +575,7 @@ class PrintEngine:
                           page_range=None, orientation="portrait",
                           margin_top=0, margin_bottom=0, margin_left=0, margin_right=0,
                           center_horizontal=0, center_vertical=0):
-        """使用 COM 自动化打印 Word/Excel（后台静默，不显示窗口）"""
+        """使用 COM 自动化打印 Word/Excel/PowerPoint（后台静默，不显示任何窗口）"""
         ext = os.path.splitext(file_path)[1].lower()
         app = None
         doc = None
@@ -540,15 +584,31 @@ class PrintEngine:
                 app = self.win32com_client.Dispatch("Word.Application")
             elif ext in ('.xls', '.xlsx'):
                 app = self.win32com_client.Dispatch("Excel.Application")
+            elif ext in ('.ppt', '.pptx'):
+                app = self.win32com_client.Dispatch("PowerPoint.Application")
             else:
                 return False, "不支持的格式"
 
+            # 关键：后台静默，绝不显示任何窗口/对话框
             app.Visible = False
-            app.DisplayAlerts = 0
-
-            doc = app.Documents.Open(os.path.abspath(file_path))
             try:
-                doc.ActivePrinter = printer_name
+                app.DisplayAlerts = False
+            except Exception:
+                pass
+
+            abs_path = os.path.abspath(file_path)
+            if ext in ('.doc', '.docx'):
+                doc = app.Documents.Open(abs_path)
+            elif ext in ('.xls', '.xlsx'):
+                doc = app.Workbooks.Open(abs_path)
+            else:
+                doc = app.Presentations.Open(abs_path, WithWindow=False)
+
+            # 指定目标打印机（不同 Office 组件设置方式略有差异）
+            try:
+                if ext in ('.xls', '.xlsx'):
+                    doc.Activate()
+                app.ActivePrinter = printer_name
             except Exception as e:
                 logger.warning(f"COM设置ActivePrinter失败: {e}")
 
@@ -614,21 +674,48 @@ class PrintEngine:
                 except Exception as e:
                     logger.warning(f"COM设置Excel居中失败: {e}")
 
-            # 打印 (PageRange: Word PrintOut 第3参数 RangeType，可选 wdPrintRangeOfPages 配合 Pages)
+            # 打印（全程后台静默）
             try:
-                if page_range:
-                    doc.PrintOut(Background=False, Copies=copies, Range=0, Pages=page_range)
+                if ext in ('.ppt', '.pptx'):
+                    # PowerPoint.PrintOut(From, To, PrintToFile, Copies, Collate)
+                    try:
+                        doc.PrintOut(1, 9999, "", copies, True)
+                    except Exception:
+                        doc.PrintOut(Copies=copies)
+                elif ext in ('.xls', '.xlsx'):
+                    # Excel.PrintOut(From, To, Copies, Preview, ActivePrinter, ...)
+                    doc.PrintOut(1, 1, copies, False, printer_name, False, True)
                 else:
-                    doc.PrintOut(Background=False, Copies=copies)
+                    # Word
+                    if page_range:
+                        doc.PrintOut(Background=False, Copies=copies, Range=0, Pages=page_range)
+                    else:
+                        doc.PrintOut(Background=False, Copies=copies)
             except Exception as e:
-                logger.warning(f"COM PrintOut with params failed: {e}, retry with copies only")
-                doc.PrintOut(Background=False, Copies=copies)
+                logger.warning(f"COM PrintOut 失败，重试: {e}")
+                try:
+                    if ext in ('.doc', '.docx'):
+                        doc.PrintOut(Background=False, Copies=copies)
+                    else:
+                        doc.PrintOut(1, 1, copies, False, printer_name, False, True)
+                except Exception as e2:
+                    logger.warning(f"COM PrintOut 重试失败: {e2}")
 
-            doc.Close(False)
+            # 关闭文档与进程（不弹窗）
+            try:
+                if ext in ('.ppt', '.pptx'):
+                    doc.Close()
+                else:
+                    doc.Close(False)
+            except Exception:
+                pass
             doc = None
-            app.Quit()
+            try:
+                app.Quit()
+            except Exception:
+                pass
             app = None
-            return True, f"COM Word/Excel 打印（{copies}份）"
+            return True, f"COM {ext[1:].upper()} 打印（{copies}份）"
         except Exception as e:
             logger.warning(f"COM打印失败: {e}")
             try:
@@ -642,6 +729,109 @@ class PrintEngine:
             except Exception:
                 pass
             return False, str(e)
+
+    def _text_to_pdf(self, file_path, paper_size="A4", orientation="portrait"):
+        """将纯文本渲染为带页边距的 PDF（再用 SumatraPDF 静默打印，零窗口）"""
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+        except ImportError:
+            logger.warning("PIL 不可用，无法将文本转PDF")
+            return None
+
+        try:
+            paper_mm = {
+                "A4": (210, 297),
+                "A3": (297, 420),
+                "A5": (148, 210),
+                "Letter": (216, 279),
+                "Legal": (216, 356),
+            }
+            w_mm, h_mm = paper_mm.get(paper_size, (210, 297))
+            if orientation == "landscape":
+                w_mm, h_mm = h_mm, w_mm
+            mm_to_pt = 2.834645669
+            page_w = int(round(w_mm * mm_to_pt))
+            page_h = int(round(h_mm * mm_to_pt))
+            margin = int(round(15 * mm_to_pt))  # 页边距 15mm
+
+            # 优先使用系统中文字体，避免中文乱码；失败则退化为默认字体
+            font = None
+            for cand in ("msyh.ttc", "msyh.ttf", "simsun.ttc", "simhei.ttf",
+                         "C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf"):
+                try:
+                    font = ImageFont.truetype(cand, 14)
+                    break
+                except Exception:
+                    continue
+            if font is None:
+                try:
+                    font = ImageFont.load_default()
+                except Exception:
+                    font = None
+
+            def char_w(ch):
+                if font and hasattr(font, "getlength"):
+                    try:
+                        return max(1, int(font.getlength(ch)))
+                    except Exception:
+                        return 14
+                return 14
+
+            # 估算每行可容纳字符数（按中文字宽估算）
+            try:
+                avg = char_w("中")
+            except Exception:
+                avg = 14
+            max_chars = max(8, int((page_w - 2 * margin) / avg))
+
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                    raw_text = f.read()
+            except Exception:
+                return None
+
+            # 按宽度折行
+            lines = []
+            for paragraph in raw_text.split("\n"):
+                if paragraph == "":
+                    lines.append("")
+                    continue
+                while len(paragraph) > max_chars:
+                    lines.append(paragraph[:max_chars])
+                    paragraph = paragraph[max_chars:]
+                lines.append(paragraph)
+
+            line_height = 22
+            lines_per_page = max(1, int((page_h - 2 * margin) / line_height))
+            pages = [lines[i:i + lines_per_page] for i in range(0, len(lines), lines_per_page)] or [[""]]
+
+            images = []
+            for pg in pages:
+                img = Image.new("RGB", (page_w, page_h), "white")
+                d = ImageDraw.Draw(img)
+                y = margin
+                for ln in pg:
+                    try:
+                        d.text((margin, y), ln, fill="black", font=font)
+                    except Exception:
+                        pass
+                    y += line_height
+                images.append(img)
+
+            tmp = os.path.join(tempfile.gettempdir(), f"yunyinbao_txt_{int(time.time() * 1000)}.pdf")
+            if len(images) == 1:
+                images[0].save(tmp, "PDF", resolution=72.0)
+            else:
+                images[0].save(tmp, "PDF", resolution=72.0, save_all=True, append_images=images[1:])
+            for im in images:
+                try:
+                    im.close()
+                except Exception:
+                    pass
+            return tmp
+        except Exception as e:
+            logger.warning(f"文本转PDF失败: {e}")
+            return None
 
     def _image_to_pdf_with_margins(self, file_path, orientation="portrait",
                                    margin_top=0, margin_bottom=0, margin_left=0, margin_right=0,
